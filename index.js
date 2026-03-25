@@ -73,7 +73,7 @@ const PASARAN = {
 
 let cache = {};
 
-// 🔄 SCRAPE + REALTIME EMIT
+// 🔄 SCRAPE + FORMAT DETAIL + REALTIME
 async function scrape(kode) {
   try {
     const url = `https://mainkartu.com/history/result/${kode}/kosong`;
@@ -85,32 +85,56 @@ async function scrape(kode) {
     const tanggalText = row.find("td").eq(2).text().trim();
     const nomor = row.find("td").eq(3).text().trim();
 
-    const waktuStr = tanggalText.replace("|", "").trim();
-    const resultTime = new Date(waktuStr);
+    // 🔥 SPLIT TANGGAL & JAM
+    const [tanggal, jam] = tanggalText.split("|").map(x => x.trim());
 
-    // 🔥 FIX TIMEZONE
+    const resultTime = new Date(`${tanggal} ${jam}`);
+
+    // 🔥 FIX TIMEZONE WIB
     const now = new Date(Date.now() + (7 * 60 * 60 * 1000));
 
-    let diffMinutes = (now - resultTime) / 60000;
-    if (diffMinutes < 0) diffMinutes = Math.abs(diffMinutes);
+    let diffMs = now - resultTime;
+    if (diffMs < 0) diffMs = Math.abs(diffMs);
 
-    // 🔥 LOGIKA FINAL
+    const diffMinutes = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMinutes / 60);
+
+    // 🔥 FORMAT HUMAN TIME
+    let waktuLalu = "";
+    if (diffMinutes < 1) {
+      waktuLalu = "baru saja";
+    } else if (diffMinutes < 60) {
+      waktuLalu = `${diffMinutes} menit lalu`;
+    } else if (diffHours < 24) {
+      waktuLalu = `${diffHours} jam lalu`;
+    } else {
+      const hari = Math.floor(diffHours / 24);
+      waktuLalu = `${hari} hari lalu`;
+    }
+
+    // 🔥 STATUS FINAL
     let status = diffMinutes < 60 ? "SUDAH" : "MENUNGGU";
 
     const old = cache[kode];
 
-    cache[kode] = {
+    const newData = {
       kode,
       pasaran: PASARAN[kode],
       angka: nomor,
+      tanggal,
+      jam,
       waktu: resultTime,
       status,
-      selisihMenit: Math.floor(diffMinutes)
+      selisihMenit: diffMinutes,
+      waktuLalu,
+      updated: new Date()
     };
 
-    // 🔥 EMIT REALTIME JIKA BERUBAH
+    cache[kode] = newData;
+
+    // 🔥 REALTIME EMIT (kalau angka berubah)
     if (!old || old.angka !== nomor) {
-      io.emit("update", cache[kode]);
+      io.emit("update", newData);
     }
 
   } catch (err) {
@@ -121,27 +145,35 @@ async function scrape(kode) {
 // 🔥 FIRST LOAD
 Object.keys(PASARAN).forEach(scrape);
 
-// 🔁 LOOP CEPAT
+// 🔁 AUTO SCRAPE
 setInterval(() => {
   Object.keys(PASARAN).forEach(scrape);
 }, 5000);
 
-// SOCKET CONNECT
+// 🔌 SOCKET CONNECT
 io.on("connection", (socket) => {
-  console.log("Client connect");
+  console.log("Client connected");
 
+  // kirim semua data awal
   socket.emit("init", cache);
 });
 
-// API fallback
+// 📡 API SINGLE
 app.get("/check/:kode", (req, res) => {
   res.json(cache[req.params.kode] || {});
 });
 
+// 📡 API ALL
+app.get("/all", (req, res) => {
+  res.json(cache);
+});
+
+// ❤️ ROOT
 app.get("/", (req, res) => {
   res.send("Realtime server aktif 🚀");
 });
 
+// 🚀 START SERVER
 server.listen(PORT, () => {
-  console.log("Server realtime jalan 🔥");
+  console.log("🔥 Server realtime jalan di port " + PORT);
 });
