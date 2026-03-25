@@ -1,5 +1,5 @@
 {
-  "name": "cek-pasaran",
+  "name": "cek-pasaran-realtime",
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
