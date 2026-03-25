@@ -1,15 +1,10 @@
 const express = require("express");
 const axios = require("axios");
 const cheerio = require("cheerio");
-const http = require("http");
-const { Server } = require("socket.io");
+const cors = require("cors");
 
 const app = express();
-const server = http.createServer(app);
-
-const io = new Server(server, {
-  cors: { origin: "*" }
-});
+app.use(cors());
 
 const PORT = process.env.PORT || 3000;
 
@@ -73,7 +68,7 @@ const PASARAN = {
 
 let cache = {};
 
-// 🔄 SCRAPE + FORMAT DETAIL + REALTIME
+// 🔄 SCRAPE FUNCTION
 async function scrape(kode) {
   try {
     const url = `https://mainkartu.com/history/result/${kode}/kosong`;
@@ -85,7 +80,6 @@ async function scrape(kode) {
     const tanggalText = row.find("td").eq(2).text().trim();
     const nomor = row.find("td").eq(3).text().trim();
 
-    // 🔥 SPLIT TANGGAL & JAM
     const [tanggal, jam] = tanggalText.split("|").map(x => x.trim());
 
     const resultTime = new Date(`${tanggal} ${jam}`);
@@ -101,23 +95,15 @@ async function scrape(kode) {
 
     // 🔥 FORMAT HUMAN TIME
     let waktuLalu = "";
-    if (diffMinutes < 1) {
-      waktuLalu = "baru saja";
-    } else if (diffMinutes < 60) {
-      waktuLalu = `${diffMinutes} menit lalu`;
-    } else if (diffHours < 24) {
-      waktuLalu = `${diffHours} jam lalu`;
-    } else {
-      const hari = Math.floor(diffHours / 24);
-      waktuLalu = `${hari} hari lalu`;
-    }
+    if (diffMinutes < 1) waktuLalu = "baru saja";
+    else if (diffMinutes < 60) waktuLalu = `${diffMinutes} menit lalu`;
+    else if (diffHours < 24) waktuLalu = `${diffHours} jam lalu`;
+    else waktuLalu = `${Math.floor(diffHours / 24)} hari lalu`;
 
     // 🔥 STATUS FINAL
     let status = diffMinutes < 60 ? "SUDAH" : "MENUNGGU";
 
-    const old = cache[kode];
-
-    const newData = {
+    cache[kode] = {
       kode,
       pasaran: PASARAN[kode],
       angka: nomor,
@@ -130,13 +116,6 @@ async function scrape(kode) {
       updated: new Date()
     };
 
-    cache[kode] = newData;
-
-    // 🔥 REALTIME EMIT (kalau angka berubah)
-    if (!old || old.angka !== nomor) {
-      io.emit("update", newData);
-    }
-
   } catch (err) {
     console.log("Error:", kode);
   }
@@ -145,35 +124,33 @@ async function scrape(kode) {
 // 🔥 FIRST LOAD
 Object.keys(PASARAN).forEach(scrape);
 
-// 🔁 AUTO SCRAPE
+// 🔁 AUTO SCRAPE (5 DETIK)
 setInterval(() => {
   Object.keys(PASARAN).forEach(scrape);
 }, 5000);
 
-// 🔌 SOCKET CONNECT
-io.on("connection", (socket) => {
-  console.log("Client connected");
+// ✅ API FIX (EDGEONE FRIENDLY)
+app.get("/api", (req, res) => {
+  const kode = req.query.kode;
 
-  // kirim semua data awal
-  socket.emit("init", cache);
+  if (!kode) {
+    return res.json({ error: "kode kosong" });
+  }
+
+  res.json(cache[kode] || {});
 });
 
-// 📡 API SINGLE
-app.get("/check/:kode", (req, res) => {
-  res.json(cache[req.params.kode] || {});
-});
-
-// 📡 API ALL
+// 📡 OPTIONAL (DEBUG)
 app.get("/all", (req, res) => {
   res.json(cache);
 });
 
 // ❤️ ROOT
 app.get("/", (req, res) => {
-  res.send("Realtime server aktif 🚀");
+  res.send("Server aktif 🚀");
 });
 
-// 🚀 START SERVER
-server.listen(PORT, () => {
-  console.log("🔥 Server realtime jalan di port " + PORT);
+// 🚀 START
+app.listen(PORT, () => {
+  console.log("🔥 Server jalan di port " + PORT);
 });
