@@ -68,7 +68,7 @@ const PASARAN = {
 
 let cache = {};
 
-// 🔄 SCRAPE FUNCTION FINAL
+// 🔄 SCRAPE FINAL
 async function scrape(kode) {
   try {
     const url = `https://mainkartu.com/history/result/${kode}/kosong`;
@@ -99,7 +99,7 @@ async function scrape(kode) {
       if (!tanggal || !jam) return;
       if (tanggal !== todayStr) return;
 
-      const waktu = new Date(`${tanggal} ${jam}`);
+      const waktu = new Date(`${tanggal}T${jam}+07:00`);
 
       candidates.push({
         tanggal,
@@ -133,7 +133,8 @@ async function scrape(kode) {
 
     const { tanggal, jam, angka, waktu } = found;
 
-    const now = new Date();
+    // 🔥 FIX TIMEZONE WIB
+    const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
 
     let diffMs = now - waktu;
     if (diffMs < 0) diffMs = 0;
@@ -166,15 +167,15 @@ async function scrape(kode) {
   }
 }
 
-// 🔥 FIRST LOAD
+// 🔥 LOAD AWAL
 Object.keys(PASARAN).forEach(scrape);
 
-// 🔁 REALTIME SCRAPE (2 DETIK)
+// 🔁 REALTIME SUPER CEPAT
 setInterval(() => {
   Object.keys(PASARAN).forEach(scrape);
 }, 2000);
 
-// ✅ API FINAL (EDGEONE SAFE)
+// ✅ API FINAL
 app.get("/api", (req, res) => {
   const kode = req.query.kode;
 
@@ -185,17 +186,17 @@ app.get("/api", (req, res) => {
   res.json(cache[kode] || {});
 });
 
-// 📡 DEBUG ALL
+// 📡 DEBUG
 app.get("/all", (req, res) => {
   res.json(cache);
 });
 
 // ❤️ ROOT
 app.get("/", (req, res) => {
-  res.send("Server aktif 🚀");
+  res.send("🔥 Server Realtime Aktif");
 });
 
 // 🚀 START
 app.listen(PORT, () => {
-  console.log("🔥 Server jalan di port " + PORT);
+  console.log("🚀 Server jalan di port " + PORT);
 });
