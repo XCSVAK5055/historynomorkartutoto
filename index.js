@@ -6,14 +6,16 @@ const { Server } = require("socket.io");
 
 const app = express();
 const server = http.createServer(app);
+
 const io = new Server(server, {
   cors: { origin: "*" }
 });
 
 const PORT = process.env.PORT || 3000;
 
+// 🔥 FULL PASARAN
 const PASARAN = {
-"m17": "TOTO MACAU 4D",
+  "m17": "TOTO MACAU 4D",
   "m51": "TOTO MACAU 5D",
   "m83": "KINGKONG 4D",
   "p13863": "TOTO BEIJING",
@@ -71,7 +73,7 @@ const PASARAN = {
 
 let cache = {};
 
-// 🔄 SCRAPE + EMIT REALTIME
+// 🔄 SCRAPE + REALTIME EMIT
 async function scrape(kode) {
   try {
     const url = `https://mainkartu.com/history/result/${kode}/kosong`;
@@ -86,10 +88,13 @@ async function scrape(kode) {
     const waktuStr = tanggalText.replace("|", "").trim();
     const resultTime = new Date(waktuStr);
 
+    // 🔥 FIX TIMEZONE
     const now = new Date(Date.now() + (7 * 60 * 60 * 1000));
+
     let diffMinutes = (now - resultTime) / 60000;
     if (diffMinutes < 0) diffMinutes = Math.abs(diffMinutes);
 
+    // 🔥 LOGIKA FINAL
     let status = diffMinutes < 60 ? "SUDAH" : "MENUNGGU";
 
     const old = cache[kode];
@@ -103,7 +108,7 @@ async function scrape(kode) {
       selisihMenit: Math.floor(diffMinutes)
     };
 
-    // 🔥 KALAU ADA PERUBAHAN → KIRIM KE CLIENT
+    // 🔥 EMIT REALTIME JIKA BERUBAH
     if (!old || old.angka !== nomor) {
       io.emit("update", cache[kode]);
     }
@@ -113,7 +118,10 @@ async function scrape(kode) {
   }
 }
 
-// 🔁 LOOP CEPAT (5 detik)
+// 🔥 FIRST LOAD
+Object.keys(PASARAN).forEach(scrape);
+
+// 🔁 LOOP CEPAT
 setInterval(() => {
   Object.keys(PASARAN).forEach(scrape);
 }, 5000);
@@ -122,7 +130,6 @@ setInterval(() => {
 io.on("connection", (socket) => {
   console.log("Client connect");
 
-  // kirim semua data awal
   socket.emit("init", cache);
 });
 
@@ -131,6 +138,10 @@ app.get("/check/:kode", (req, res) => {
   res.json(cache[req.params.kode] || {});
 });
 
+app.get("/", (req, res) => {
+  res.send("Realtime server aktif 🚀");
+});
+
 server.listen(PORT, () => {
-  console.log("Realtime server jalan 🔥");
+  console.log("Server realtime jalan 🔥");
 });
