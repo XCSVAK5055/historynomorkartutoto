@@ -5,7 +5,7 @@ const cheerio = require("cheerio");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// daftar pasaran
+// 🔥 FULL PASARAN
 const PASARAN = {
   "m17": "TOTO MACAU 4D",
   "m51": "TOTO MACAU 5D",
@@ -61,12 +61,11 @@ const PASARAN = {
   "p30530": "MEXICO",
   "p30105": "DENVER",
   "p30104": "HAITI"
-}
 };
 
-let cache = {}; // simpan data tiap pasaran
+let cache = {};
 
-// 🔄 scrape function
+// 🔄 SCRAPE FUNCTION
 async function scrape(kode) {
   try {
     const url = `https://mainkartu.com/history/result/${kode}/kosong`;
@@ -97,6 +96,7 @@ async function scrape(kode) {
     }
 
     cache[kode] = {
+      kode,
       pasaran: PASARAN[kode],
       angka: nomor,
       waktu: resultTime,
@@ -105,30 +105,37 @@ async function scrape(kode) {
     };
 
   } catch (err) {
-    console.log("Error scrape:", kode);
+    console.log("Error:", kode);
   }
 }
 
-// 🔁 auto scrape tiap 10 detik
+// 🚀 AUTO SCRAPE SEMUA PASARAN (10 detik)
 setInterval(() => {
   Object.keys(PASARAN).forEach(kode => scrape(kode));
 }, 10000);
 
-// endpoint
+// 📡 API SINGLE
 app.get("/check/:kode", (req, res) => {
   const kode = req.params.kode;
   res.json(cache[kode] || { status: "LOADING..." });
 });
 
-// health check
+// 📡 API SEMUA PASARAN (buat dashboard nanti)
+app.get("/all", (req, res) => {
+  res.json(cache);
+});
+
+// ❤️ ROOT
 app.get("/", (req, res) => {
   res.send("Server aktif 🚀");
 });
 
-// 🔄 auto ping (anti sleep Railway)
+// 🔥 AUTO PING (ANTI SLEEP RAILWAY)
 setInterval(() => {
-  axios.get("https://backend-kamu.up.railway.app")
-    .catch(() => {});
-}, 300000); // tiap 5 menit
+  const url = process.env.RAILWAY_STATIC_URL || "http://localhost:" + PORT;
+  axios.get(url).catch(() => {});
+}, 300000);
 
-app.listen(PORT, () => console.log("Server jalan di " + PORT));
+app.listen(PORT, () => {
+  console.log("Server jalan di port " + PORT);
+});
