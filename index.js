@@ -65,7 +65,7 @@ const PASARAN = {
 
 let cache = {};
 
-// 🔄 SCRAPE FUNCTION
+// 🔄 SCRAPE FUNCTION (FIX LOGIKA)
 async function scrape(kode) {
   try {
     const url = `https://mainkartu.com/history/result/${kode}/kosong`;
@@ -83,24 +83,30 @@ async function scrape(kode) {
     const now = new Date();
     const diffMinutes = (now - resultTime) / 60000;
 
+    const old = cache[kode]; // 🔥 ambil data lama
+
     let status = "BELUM";
 
+    // ❌ kalau data lama → tunggu
     if (diffMinutes >= 60) {
       status = "MENUNGGU";
     } else {
-      if (cache[kode] && cache[kode].angka !== nomor) {
+      // 🔥 compare angka lama vs baru
+      if (old && old.angka !== nomor) {
         status = "NAIK";
       } else {
         status = "BELUM";
       }
     }
 
+    // ✅ update cache setelah compare
     cache[kode] = {
       kode,
       pasaran: PASARAN[kode],
       angka: nomor,
       waktu: resultTime,
       status,
+      selisihMenit: Math.floor(diffMinutes),
       updated: new Date()
     };
 
@@ -109,7 +115,10 @@ async function scrape(kode) {
   }
 }
 
-// 🚀 AUTO SCRAPE SEMUA PASARAN (10 detik)
+// 🚀 FIRST LOAD (BIAR LANGSUNG ADA DATA)
+Object.keys(PASARAN).forEach(kode => scrape(kode));
+
+// 🔁 AUTO SCRAPE
 setInterval(() => {
   Object.keys(PASARAN).forEach(kode => scrape(kode));
 }, 10000);
@@ -120,7 +129,7 @@ app.get("/check/:kode", (req, res) => {
   res.json(cache[kode] || { status: "LOADING..." });
 });
 
-// 📡 API SEMUA PASARAN (buat dashboard nanti)
+// 📡 API ALL
 app.get("/all", (req, res) => {
   res.json(cache);
 });
@@ -130,7 +139,7 @@ app.get("/", (req, res) => {
   res.send("Server aktif 🚀");
 });
 
-// 🔥 AUTO PING (ANTI SLEEP RAILWAY)
+// 🔥 AUTO PING (ANTI SLEEP)
 setInterval(() => {
   const url = process.env.RAILWAY_STATIC_URL || "http://localhost:" + PORT;
   axios.get(url).catch(() => {});
