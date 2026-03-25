@@ -1,13 +1,19 @@
 const express = require("express");
 const axios = require("axios");
 const cheerio = require("cheerio");
+const http = require("http");
+const { Server } = require("socket.io");
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: { origin: "*" }
+});
+
 const PORT = process.env.PORT || 3000;
 
-// 🔥 FULL PASARAN
 const PASARAN = {
-  "m17": "TOTO MACAU 4D",
+"m17": "TOTO MACAU 4D",
   "m51": "TOTO MACAU 5D",
   "m83": "KINGKONG 4D",
   "p13863": "TOTO BEIJING",
@@ -65,7 +71,7 @@ const PASARAN = {
 
 let cache = {};
 
-// 🔄 SCRAPE FUNCTION (FIX LOGIKA)
+// 🔄 SCRAPE + EMIT REALTIME
 async function scrape(kode) {
   try {
     const url = `https://mainkartu.com/history/result/${kode}/kosong`;
@@ -77,74 +83,54 @@ async function scrape(kode) {
     const tanggalText = row.find("td").eq(2).text().trim();
     const nomor = row.find("td").eq(3).text().trim();
 
-    const waktu = tanggalText.replace("|", "").trim();
-    const resultTime = new Date(waktu);
+    const waktuStr = tanggalText.replace("|", "").trim();
+    const resultTime = new Date(waktuStr);
 
-    const now = new Date();
-    const diffMinutes = (now - resultTime) / 60000;
+    const now = new Date(Date.now() + (7 * 60 * 60 * 1000));
+    let diffMinutes = (now - resultTime) / 60000;
+    if (diffMinutes < 0) diffMinutes = Math.abs(diffMinutes);
 
-    const old = cache[kode]; // 🔥 ambil data lama
+    let status = diffMinutes < 60 ? "SUDAH" : "MENUNGGU";
 
-    let status = "BELUM";
+    const old = cache[kode];
 
-    // ❌ kalau data lama → tunggu
-    if (diffMinutes >= 60) {
-      status = "MENUNGGU";
-    } else {
-      // 🔥 compare angka lama vs baru
-      if (old && old.angka !== nomor) {
-        status = "NAIK";
-      } else {
-        status = "BELUM";
-      }
-    }
-
-    // ✅ update cache setelah compare
     cache[kode] = {
       kode,
       pasaran: PASARAN[kode],
       angka: nomor,
       waktu: resultTime,
       status,
-      selisihMenit: Math.floor(diffMinutes),
-      updated: new Date()
+      selisihMenit: Math.floor(diffMinutes)
     };
+
+    // 🔥 KALAU ADA PERUBAHAN → KIRIM KE CLIENT
+    if (!old || old.angka !== nomor) {
+      io.emit("update", cache[kode]);
+    }
 
   } catch (err) {
     console.log("Error:", kode);
   }
 }
 
-// 🚀 FIRST LOAD (BIAR LANGSUNG ADA DATA)
-Object.keys(PASARAN).forEach(kode => scrape(kode));
-
-// 🔁 AUTO SCRAPE
+// 🔁 LOOP CEPAT (5 detik)
 setInterval(() => {
-  Object.keys(PASARAN).forEach(kode => scrape(kode));
-}, 10000);
+  Object.keys(PASARAN).forEach(scrape);
+}, 5000);
 
-// 📡 API SINGLE
+// SOCKET CONNECT
+io.on("connection", (socket) => {
+  console.log("Client connect");
+
+  // kirim semua data awal
+  socket.emit("init", cache);
+});
+
+// API fallback
 app.get("/check/:kode", (req, res) => {
-  const kode = req.params.kode;
-  res.json(cache[kode] || { status: "LOADING..." });
+  res.json(cache[req.params.kode] || {});
 });
 
-// 📡 API ALL
-app.get("/all", (req, res) => {
-  res.json(cache);
-});
-
-// ❤️ ROOT
-app.get("/", (req, res) => {
-  res.send("Server aktif 🚀");
-});
-
-// 🔥 AUTO PING (ANTI SLEEP)
-setInterval(() => {
-  const url = process.env.RAILWAY_STATIC_URL || "http://localhost:" + PORT;
-  axios.get(url).catch(() => {});
-}, 300000);
-
-app.listen(PORT, () => {
-  console.log("Server jalan di port " + PORT);
+server.listen(PORT, () => {
+  console.log("Realtime server jalan 🔥");
 });
