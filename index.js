@@ -15,9 +15,9 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 3000;
 
-// 🔥 PASARAN
+// 🔥 FULL PASARAN
 const PASARAN = {
-  "m17": "TOTO MACAU 4D",
+"m17": "TOTO MACAU 4D",
   "m51": "TOTO MACAU 5D",
   "m83": "KINGKONG 4D",
   "p13863": "TOTO BEIJING",
@@ -73,7 +73,6 @@ const PASARAN = {
   "p30104": "HAITI"
 };
 
-
 let cache = {};
 
 // 🔄 SCRAPE FINAL
@@ -90,48 +89,73 @@ async function scrape(kode) {
     $("table tbody tr").each((i, el) => {
 
       const cols = $(el).find("td");
-      if (cols.length < 4) return;
+      if (cols.length < 3) return;
 
-      let tanggalText = cols.eq(2).text().trim();
-      let angka = cols.eq(3).text().trim();
+      let tanggalText = "";
+      let angka = "";
 
-      // 🔥 FIX MACAU / KINGKONG
-      if (kode.startsWith("m")) {
-        angka = cols.eq(2).text().trim();
-        tanggalText = cols.eq(1).text().trim();
+      // 🔥 HANDLE NORMAL
+      if (!kode.startsWith("m")) {
+        tanggalText = cols.eq(2).text().trim();
+        angka = cols.eq(3).text().trim();
       }
 
-      if (!tanggalText) return;
+      // 🔥 HANDLE MACAU / KINGKONG (FIX)
+      else {
+        tanggalText = cols.eq(1).text().trim();
+        angka = cols.eq(2).text().trim();
+      }
+
+      if (!tanggalText || !angka) return;
 
       let [tanggal, jam] = tanggalText.split("|").map(x => x.trim());
 
-      if (!tanggal || !jam) return;
-      if (tanggal !== todayStr) return;
+      if (!tanggal) return;
 
-      found = { tanggal, jam, angka };
-      return false;
+      // 🔥 FILTER HARI INI
+      if (tanggal === todayStr) {
+        found = { tanggal, jam, angka };
+        return false;
+      }
     });
 
-    if (!found) return;
+    // ❌ BELUM ADA HASIL HARI INI
+    if (!found) {
+      cache[kode] = {
+        kode,
+        pasaran: PASARAN[kode],
+        angka: "",
+        tanggal: null,
+        jam: null,
+        status: "MENUNGGU",
+        waktuLalu: "-",
+        updated: new Date()
+      };
+      return;
+    }
 
     const { tanggal, jam, angka } = found;
 
-    // 🔥 HITUNG MANUAL (ANTI TIMEZONE BUG)
+    // 🔥 HITUNG MANUAL
     const now = new Date();
     const nowWIB = new Date(now.getTime() + (7 * 60 * 60 * 1000));
 
-    const [h, m] = jam.split(":").map(Number);
+    let waktuLalu = "-";
 
-    const resultMinutes = h * 60 + m;
-    const nowMinutes = nowWIB.getHours() * 60 + nowWIB.getMinutes();
+    if (jam) {
+      const [h, m] = jam.split(":").map(Number);
 
-    let diffMinutes = nowMinutes - resultMinutes;
-    if (diffMinutes < 0) diffMinutes += 1440;
+      const resultMinutes = h * 60 + m;
+      const nowMinutes = nowWIB.getHours() * 60 + nowWIB.getMinutes();
 
-    let waktuLalu =
-      diffMinutes < 1 ? "baru saja" :
-      diffMinutes < 60 ? `${diffMinutes} menit lalu` :
-      `${Math.floor(diffMinutes / 60)} jam lalu`;
+      let diffMinutes = nowMinutes - resultMinutes;
+      if (diffMinutes < 0) diffMinutes += 1440;
+
+      waktuLalu =
+        diffMinutes < 1 ? "baru saja" :
+        diffMinutes < 60 ? `${diffMinutes} menit lalu` :
+        `${Math.floor(diffMinutes / 60)} jam lalu`;
+    }
 
     const newData = {
       kode,
@@ -139,8 +163,7 @@ async function scrape(kode) {
       angka,
       tanggal,
       jam,
-      status: diffMinutes < 60 ? "SUDAH" : "MENUNGGU",
-      selisihMenit: diffMinutes,
+      status: "SUDAH", // 🔥 FIX FINAL
       waktuLalu,
       updated: new Date()
     };
@@ -149,7 +172,7 @@ async function scrape(kode) {
     cache[kode] = newData;
 
     // 🔥 REALTIME PUSH
-    if (!old || old.angka !== newData.angka) {
+    if (!old || old.angka !== angka) {
       io.emit("update", newData);
       console.log("🔥 UPDATE:", kode, angka);
     }
@@ -169,13 +192,12 @@ app.get("/api", (req, res) => {
   res.json(cache[req.query.kode] || {});
 });
 
-// socket
+// SOCKET
 io.on("connection", (socket) => {
-  console.log("⚡ Client connect");
   socket.emit("init", cache);
 });
 
-// start
+// START
 server.listen(PORT, () => {
-  console.log("🚀 Backend realtime aktif di port " + PORT);
+  console.log("🚀 Backend realtime aktif");
 });
