@@ -17,7 +17,7 @@ const PORT = process.env.PORT || 3000;
 
 // 🔥 FULL PASARAN
 const PASARAN = {
-"m17": "TOTO MACAU 4D",
+  "m17": "TOTO MACAU 4D",
   "m51": "TOTO MACAU 5D",
   "m83": "KINGKONG 4D",
   "p13863": "TOTO BEIJING",
@@ -89,18 +89,16 @@ async function scrape(kode) {
     $("table tbody tr").each((i, el) => {
 
       const cols = $(el).find("td");
-      if (cols.length < 3) return;
 
       let tanggalText = "";
       let angka = "";
 
-      // 🔥 HANDLE NORMAL
+      // 🔥 NORMAL
       if (!kode.startsWith("m")) {
         tanggalText = cols.eq(2).text().trim();
         angka = cols.eq(3).text().trim();
-      }
-
-      // 🔥 HANDLE MACAU / KINGKONG (FIX)
+      } 
+      // 🔥 MACAU FIX
       else {
         tanggalText = cols.eq(1).text().trim();
         angka = cols.eq(2).text().trim();
@@ -112,14 +110,13 @@ async function scrape(kode) {
 
       if (!tanggal) return;
 
-      // 🔥 FILTER HARI INI
       if (tanggal === todayStr) {
         found = { tanggal, jam, angka };
         return false;
       }
     });
 
-    // ❌ BELUM ADA HASIL HARI INI
+    // ❌ BELUM ADA
     if (!found) {
       cache[kode] = {
         kode,
@@ -136,11 +133,12 @@ async function scrape(kode) {
 
     const { tanggal, jam, angka } = found;
 
-    // 🔥 HITUNG MANUAL
+    // 🔥 HITUNG MANUAL TIME (ANTI BUG)
     const now = new Date();
     const nowWIB = new Date(now.getTime() + (7 * 60 * 60 * 1000));
 
     let waktuLalu = "-";
+    let diffMinutes = 0;
 
     if (jam) {
       const [h, m] = jam.split(":").map(Number);
@@ -148,13 +146,23 @@ async function scrape(kode) {
       const resultMinutes = h * 60 + m;
       const nowMinutes = nowWIB.getHours() * 60 + nowWIB.getMinutes();
 
-      let diffMinutes = nowMinutes - resultMinutes;
+      diffMinutes = nowMinutes - resultMinutes;
       if (diffMinutes < 0) diffMinutes += 1440;
 
-      waktuLalu =
-        diffMinutes < 1 ? "baru saja" :
-        diffMinutes < 60 ? `${diffMinutes} menit lalu` :
-        `${Math.floor(diffMinutes / 60)} jam lalu`;
+      if (diffMinutes < 1) {
+        waktuLalu = "baru saja";
+      } 
+      else if (diffMinutes < 60) {
+        waktuLalu = `${diffMinutes} menit lalu`;
+      } 
+      else {
+        const jamnya = Math.floor(diffMinutes / 60);
+        const sisamenit = diffMinutes % 60;
+
+        waktuLalu = sisamenit === 0
+          ? `${jamnya} jam lalu`
+          : `${jamnya} jam ${sisamenit} menit lalu`;
+      }
     }
 
     const newData = {
@@ -163,7 +171,8 @@ async function scrape(kode) {
       angka,
       tanggal,
       jam,
-      status: "SUDAH", // 🔥 FIX FINAL
+      status: "SUDAH",
+      selisihMenit: diffMinutes,
       waktuLalu,
       updated: new Date()
     };
@@ -172,7 +181,7 @@ async function scrape(kode) {
     cache[kode] = newData;
 
     // 🔥 REALTIME PUSH
-    if (!old || old.angka !== angka) {
+    if (!old || old.angka !== newData.angka) {
       io.emit("update", newData);
       console.log("🔥 UPDATE:", kode, angka);
     }
@@ -182,7 +191,7 @@ async function scrape(kode) {
   }
 }
 
-// 🔁 LOOP CEPAT
+// 🔁 LOOP REALTIME
 setInterval(() => {
   Object.keys(PASARAN).forEach(scrape);
 }, 2000);
