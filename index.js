@@ -68,48 +68,93 @@ const PASARAN = {
 
 let cache = {};
 
-// 🔄 SCRAPE FUNCTION
+// 🔄 SCRAPE FUNCTION FINAL
 async function scrape(kode) {
   try {
     const url = `https://mainkartu.com/history/result/${kode}/kosong`;
     const { data } = await axios.get(url);
     const $ = cheerio.load(data);
 
-    const row = $("table tbody tr").first();
+    const todayStr = new Date().toISOString().split("T")[0];
 
-    const tanggalText = row.find("td").eq(2).text().trim();
-    const nomor = row.find("td").eq(3).text().trim();
+    let candidates = [];
 
-    const [tanggal, jam] = tanggalText.split("|").map(x => x.trim());
+    $("table tbody tr").each((i, el) => {
+      const cols = $(el).find("td");
+      if (cols.length < 4) return;
 
-    const resultTime = new Date(`${tanggal} ${jam}`);
+      let tanggalText = cols.eq(2).text().trim();
+      let angka = cols.eq(3).text().trim();
 
-    // 🔥 FIX TIMEZONE WIB
-    const now = new Date(Date.now() + (7 * 60 * 60 * 1000));
+      // 🔥 FIX MACAU / KINGKONG
+      if (kode.startsWith("m")) {
+        angka = cols.eq(2).text().trim();
+        tanggalText = cols.eq(1).text().trim();
+      }
 
-    let diffMs = now - resultTime;
-    if (diffMs < 0) diffMs = Math.abs(diffMs);
+      if (!tanggalText) return;
+
+      let [tanggal, jam] = tanggalText.split("|").map(x => x.trim());
+
+      if (!tanggal || !jam) return;
+      if (tanggal !== todayStr) return;
+
+      const waktu = new Date(`${tanggal} ${jam}`);
+
+      candidates.push({
+        tanggal,
+        jam,
+        angka,
+        waktu
+      });
+    });
+
+    let found = null;
+
+    if (candidates.length > 0) {
+      found = candidates.sort((a, b) => b.waktu - a.waktu)[0];
+    }
+
+    if (!found) {
+      cache[kode] = {
+        kode,
+        pasaran: PASARAN[kode],
+        angka: "",
+        tanggal: null,
+        jam: null,
+        waktu: null,
+        status: "MENUNGGU",
+        selisihMenit: null,
+        waktuLalu: "-",
+        updated: new Date()
+      };
+      return;
+    }
+
+    const { tanggal, jam, angka, waktu } = found;
+
+    const now = new Date();
+
+    let diffMs = now - waktu;
+    if (diffMs < 0) diffMs = 0;
 
     const diffMinutes = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMinutes / 60);
 
-    // 🔥 FORMAT HUMAN TIME
     let waktuLalu = "";
+
     if (diffMinutes < 1) waktuLalu = "baru saja";
     else if (diffMinutes < 60) waktuLalu = `${diffMinutes} menit lalu`;
-    else if (diffHours < 24) waktuLalu = `${diffHours} jam lalu`;
-    else waktuLalu = `${Math.floor(diffHours / 24)} hari lalu`;
+    else waktuLalu = `${Math.floor(diffMinutes / 60)} jam lalu`;
 
-    // 🔥 STATUS FINAL
-    let status = diffMinutes < 60 ? "SUDAH" : "MENUNGGU";
+    const status = diffMinutes < 60 ? "SUDAH" : "MENUNGGU";
 
     cache[kode] = {
       kode,
       pasaran: PASARAN[kode],
-      angka: nomor,
+      angka,
       tanggal,
       jam,
-      waktu: resultTime,
+      waktu,
       status,
       selisihMenit: diffMinutes,
       waktuLalu,
@@ -124,12 +169,12 @@ async function scrape(kode) {
 // 🔥 FIRST LOAD
 Object.keys(PASARAN).forEach(scrape);
 
-// 🔁 AUTO SCRAPE (5 DETIK)
+// 🔁 REALTIME SCRAPE (2 DETIK)
 setInterval(() => {
   Object.keys(PASARAN).forEach(scrape);
-}, 5000);
+}, 2000);
 
-// ✅ API FIX (EDGEONE FRIENDLY)
+// ✅ API FINAL (EDGEONE SAFE)
 app.get("/api", (req, res) => {
   const kode = req.query.kode;
 
@@ -140,7 +185,7 @@ app.get("/api", (req, res) => {
   res.json(cache[kode] || {});
 });
 
-// 📡 OPTIONAL (DEBUG)
+// 📡 DEBUG ALL
 app.get("/all", (req, res) => {
   res.json(cache);
 });
