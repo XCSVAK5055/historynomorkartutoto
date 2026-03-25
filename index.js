@@ -2,9 +2,16 @@ const express = require("express");
 const axios = require("axios");
 const cheerio = require("cheerio");
 const cors = require("cors");
+const http = require("http");
+const { Server } = require("socket.io");
 
 const app = express();
 app.use(cors());
+
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: { origin: "*" }
+});
 
 const PORT = process.env.PORT || 3000;
 
@@ -68,7 +75,7 @@ const PASARAN = {
 
 let cache = {};
 
-// 🔄 SCRAPE FINAL
+// 🔄 SCRAPE FINAL FIX
 async function scrape(kode) {
   try {
     const url = `https://mainkartu.com/history/result/${kode}/kosong`;
@@ -80,13 +87,14 @@ async function scrape(kode) {
     let candidates = [];
 
     $("table tbody tr").each((i, el) => {
+
       const cols = $(el).find("td");
       if (cols.length < 4) return;
 
       let tanggalText = cols.eq(2).text().trim();
       let angka = cols.eq(3).text().trim();
 
-      // 🔥 FIX MACAU / KINGKONG
+      // 🔥 FIX MACAU / KINGKONG (STRUKTUR BEDA)
       if (kode.startsWith("m")) {
         angka = cols.eq(2).text().trim();
         tanggalText = cols.eq(1).text().trim();
@@ -99,104 +107,72 @@ async function scrape(kode) {
       if (!tanggal || !jam) return;
       if (tanggal !== todayStr) return;
 
-      const waktu = new Date(`${tanggal}T${jam}+07:00`);
+      const waktu = new Date(`${tanggal} ${jam}`);
 
-      candidates.push({
-        tanggal,
-        jam,
-        angka,
-        waktu
-      });
+      candidates.push({ tanggal, jam, angka, waktu });
     });
 
-    let found = null;
+    if (candidates.length === 0) return;
 
-    if (candidates.length > 0) {
-      found = candidates.sort((a, b) => b.waktu - a.waktu)[0];
-    }
+    // 🔥 AMBIL PALING BARU
+    const latest = candidates.sort((a, b) => b.waktu - a.waktu)[0];
 
-    if (!found) {
-      cache[kode] = {
-        kode,
-        pasaran: PASARAN[kode],
-        angka: "",
-        tanggal: null,
-        jam: null,
-        waktu: null,
-        status: "MENUNGGU",
-        selisihMenit: null,
-        waktuLalu: "-",
-        updated: new Date()
-      };
-      return;
-    }
+    const now = new Date();
 
-    const { tanggal, jam, angka, waktu } = found;
+    let diff = now - latest.waktu;
+    if (diff < 0) diff = 0;
 
-    // 🔥 FIX TIMEZONE WIB
-    const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
+    const menit = Math.floor(diff / 60000);
 
-    let diffMs = now - waktu;
-    if (diffMs < 0) diffMs = 0;
+    let waktuLalu =
+      menit < 1 ? "baru saja" :
+      menit < 60 ? `${menit} menit lalu` :
+      `${Math.floor(menit / 60)} jam lalu`;
 
-    const diffMinutes = Math.floor(diffMs / 60000);
-
-    let waktuLalu = "";
-
-    if (diffMinutes < 1) waktuLalu = "baru saja";
-    else if (diffMinutes < 60) waktuLalu = `${diffMinutes} menit lalu`;
-    else waktuLalu = `${Math.floor(diffMinutes / 60)} jam lalu`;
-
-    const status = diffMinutes < 60 ? "SUDAH" : "MENUNGGU";
-
-    cache[kode] = {
+    const newData = {
       kode,
       pasaran: PASARAN[kode],
-      angka,
-      tanggal,
-      jam,
-      waktu,
-      status,
-      selisihMenit: diffMinutes,
+      angka: latest.angka,
+      tanggal: latest.tanggal,
+      jam: latest.jam,
+      waktu: latest.waktu,
+      status: menit < 60 ? "SUDAH" : "MENUNGGU",
+      selisihMenit: menit,
       waktuLalu,
       updated: new Date()
     };
+
+    const old = cache[kode];
+    cache[kode] = newData;
+
+    // 🔥 REALTIME PUSH (HANYA SAAT BERUBAH)
+    if (!old || old.angka !== newData.angka) {
+      io.emit("update", newData);
+      console.log("🔥 UPDATE:", kode, newData.angka);
+    }
 
   } catch (err) {
     console.log("Error:", kode);
   }
 }
 
-// 🔥 LOAD AWAL
-Object.keys(PASARAN).forEach(scrape);
-
-// 🔁 REALTIME SUPER CEPAT
+// 🔁 LOOP CEPAT
 setInterval(() => {
   Object.keys(PASARAN).forEach(scrape);
 }, 2000);
 
-// ✅ API FINAL
+// API fallback
 app.get("/api", (req, res) => {
-  const kode = req.query.kode;
-
-  if (!kode) {
-    return res.json({ error: "kode kosong" });
-  }
-
-  res.json(cache[kode] || {});
+  res.json(cache[req.query.kode] || {});
 });
 
-// 📡 DEBUG
-app.get("/all", (req, res) => {
-  res.json(cache);
+// socket connect
+io.on("connection", (socket) => {
+  console.log("⚡ Client connect");
+  socket.emit("init", cache);
 });
 
-// ❤️ ROOT
-app.get("/", (req, res) => {
-  res.send("🔥 Server Realtime Aktif");
-});
-
-// 🚀 START
-app.listen(PORT, () => {
-  console.log("🚀 Server jalan di port " + PORT);
+// start server
+server.listen(PORT, () => {
+  console.log("🚀 Backend realtime aktif di port " + PORT);
 });
